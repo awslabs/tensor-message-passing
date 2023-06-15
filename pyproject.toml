@@ -10,6 +10,9 @@ packages = [{include = "tensor_message_passing"}]
 python = "^3.9"
 
 
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^3.3.3"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
