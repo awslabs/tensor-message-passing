@@ -7,10 +7,11 @@ readme = "README.md"
 packages = [{include = "tensor_message_passing"}]
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.11"
 pre-commit = "^3.3.3"
 black = "^23.3.0"
 isort = "^5.12.0"
+pytest = "^7.3.2"
 
 
 [tool.poetry.group.dev.dependencies]
