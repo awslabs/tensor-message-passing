@@ -1,6 +1,6 @@
-## Tensor Network Message Passing Algorithm
+## Tensor Network Message Passing Algorithms
 
-This repository contain the code used to generate the results in arxiv.oro/...
+This repository contains the code used to generate the results in arxiv.oro/...
 
 ## Install
 
