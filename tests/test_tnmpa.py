@@ -1,4 +1,4 @@
-from tensor_message_passing import __version__
+from tnmpa import __version__
 
 
 def test_version():
