@@ -11,4 +11,4 @@ from .message_passing_ksat import (
     TensorSurveyPropagation,
     TwoNormBeliefPropagation,
 )
-from .walk_sat import WalkSAT
+from .walksat import WalkSAT
