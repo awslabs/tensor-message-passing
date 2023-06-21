@@ -2,6 +2,8 @@ import random
 
 
 class WalkSAT:
+    """Basic implementation of WalkSAT to solve a k-SAT instance."""
+
     def __init__(self, instance):
         self.instance = instance
         init_guess = [bool(random.getrandbits(1)) for _ in self.instance.variables]
