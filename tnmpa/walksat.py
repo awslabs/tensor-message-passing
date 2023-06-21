@@ -21,6 +21,7 @@ class WalkSAT:
                 self.violated_clauses.append(c.label)
 
     def solve(self, max_flips, mixing):
+        """Solve this instnace"""
         iter_no = 0
 
         for iter_no in range(max_flips):
