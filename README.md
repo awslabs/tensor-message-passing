@@ -1,11 +1,11 @@
-## My Project
+## Tensor Network Message Passing Algorithm
 
-TODO: Fill this README out!
+This repository contain the code used to generate the results in arxiv.oro/...
 
-Be sure to:
+## Install
 
-* Change the title in this README
-* Edit your repository description on GitHub
+Just clone this repo, optionally create an evironment, and run `poetry install` from the project's directory `tensor-message-passing`
+ 
 
 ## Security
 
@@ -14,4 +14,3 @@ See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more inform
 ## License
 
 This library is licensed under the MIT-0 License. See the LICENSE file.
-
