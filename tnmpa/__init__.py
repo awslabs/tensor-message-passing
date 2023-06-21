@@ -11,4 +11,4 @@ from .message_passing_ksat import (
     TwoNormBeliefPropagation,
 )
 from .quimb_vbp import get_messages, iterate_vbp, setup_vbp
-from .WalkSAT import WalkSAT
+from .walksat import WalkSAT

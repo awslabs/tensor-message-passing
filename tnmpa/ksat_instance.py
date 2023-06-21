@@ -266,7 +266,8 @@ class KsatInstance:
         TensorNetwork
         """
         import quimb.tensor as qtn
-        import tensor_factories as tfac
+
+        import tnmpa.tensor_factories as tfac
 
         tn = qtn.TensorNetwork([])
 

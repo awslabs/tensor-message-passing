@@ -16,6 +16,10 @@ importlib = "^1.0.4"
 llvmlite = "^0.40.0"
 numba = "^0.57.0"
 quimb = "^1.5.0"
+ipython = "^8.14.0"
+ipykernel = "^6.23.2"
+networkx = "^3.1"
+matplotlib = "^3.7.1"
 
 
 [tool.poetry.group.dev.dependencies]
