@@ -4,7 +4,7 @@ This repository contains the code used to generate the results in arxiv.org/...
 
 ## Install
 
-Just clone this repo, optionally create an evironment, and run `poetry install` from the project's directory `tensor-message-passing`
+Just clone this repo, optionally create an environment (`conda create -n tnmpa python=3.11`), and run `poetry install` from the project's directory `tensor-message-passing`
  
 ## Examples
 
