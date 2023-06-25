@@ -8,7 +8,7 @@ Just clone this repo, optionally create an evironment, and run `poetry install` 
  
 ## Examples
 
-In `tnmpa/examples` you can find a few jupyter notebooks that demonstrate how to use the code. The files `ksat_*` compute solutions of kSAT instances. The files `compare_*` compute some high-level comparisons between massage passing, exact and tensor network contractions. `quimb_bp.ipynb` showcases the power of vecotrized belief propagation for arbitrary tensor networks on large instances.
+In `tnmpa/examples` you can find a few jupyter notebooks that demonstrate how to use the code. The files `ksat_*` compute solutions of kSAT instances. The files `compare_*` compute some high-level comparisons between massage passing, exact and tensor network contractions. Finally, `quimb_bp.ipynb` showcases the power of vecotrized belief propagation for *large* tensor networks.
 
 ## Security
 
