@@ -324,7 +324,7 @@ class KsatInstance:
 
         if fix is not None:
             for var, val in fix.items():
-                cnf.append((((-1) ** val) * (var + 1),))
+                cnf.append(((1 if val else -1) * (var + 1),))
 
         return cnf
 
