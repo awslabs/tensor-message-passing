@@ -4,7 +4,7 @@ import functools
 import operator
 
 import autoray as ar
-from quimb.tensor.tensor_core import _inds_to_eq
+from quimb.tensor.tensor_core import _inds_to_eq as inds_to_eq
 
 
 def initialize_messages(tn):
@@ -27,14 +27,15 @@ def initialize_messages(tn):
     messages = {}
 
     for ix, tids in tn.ind_map.items():
+        # XXX: use actual tensor data sum
         d = tn.ind_size(ix)
         data = _ones(d) / d
 
         for tid in tids:
-            # from hyperind to tensor
-            messages[ix, tid] = data
             # from tensor to hyperind
             messages[tid, ix] = data
+            # from hyperind to tensor
+            messages[ix, tid] = data
 
     return messages
 
@@ -46,84 +47,101 @@ def initialize_batch_messages(tn, messages=None):
     if messages is None:
         messages = initialize_messages(tn)
 
-    input_locs = {}
-    output_locs = {}
 
     backend = ar.infer_backend(next(iter(messages.values())))
     _stack = ar.get_lib_fn(backend, "stack")
     _array = ar.get_lib_fn(backend, "array")
 
     # prepare index messages
-    f = 0
-    batched_inputs = {}
+    batched_inputs_m = {}
+    input_locs_m = {}
+    output_locs_m = {}
     for ix, tids in tn.ind_map.items():
         rank = len(tids)
         try:
-            batch = batched_inputs[f, rank]
+            batch = batched_inputs_m[rank]
         except KeyError:
-            batch = batched_inputs[f, rank] = [[] for _ in range(rank)]
+            batch = batched_inputs_m[rank] = [[] for _ in range(rank)]
 
         for i, tid in enumerate(tids):
             batch_i = batch[i]
             # position in the stack
             b = len(batch_i)
-            input_locs[tid, ix] = (f, rank, i, b)
-            output_locs[ix, tid] = (f, rank, i, b)
+            input_locs_m[tid, ix] = (rank, i, b)
+            output_locs_m[ix, tid] = (rank, i, b)
             batch_i.append(messages[tid, ix])
 
     # prepare tensor messages
-    f = 1
     batched_tensors = {}
+    batched_inputs_t = {}
+    input_locs_t = {}
+    output_locs_t = {}
     for tid, t in tn.tensor_map.items():
         rank = t.ndim
         if rank == 0:
             continue
 
         try:
-            batch = batched_inputs[f, rank]
+            batch = batched_inputs_t[rank]
             batch_t = batched_tensors[rank]
         except KeyError:
-            batch = batched_inputs[f, rank] = [[] for _ in range(rank)]
+            batch = batched_inputs_t[rank] = [[] for _ in range(rank)]
             batch_t = batched_tensors[rank] = []
 
         for i, ix in enumerate(t.inds):
             batch_i = batch[i]
             # position in the stack
             b = len(batch_i)
-            input_locs[ix, tid] = (f, rank, i, b)
-            output_locs[tid, ix] = (f, rank, i, b)
+            input_locs_t[ix, tid] = (rank, i, b)
+            output_locs_t[tid, ix] = (rank, i, b)
             batch_i.append(messages[ix, tid])
 
         batch_t.append(t.data)
 
-    # stack into single arrays
-    for key, batch in batched_inputs.items():
-        batched_inputs[key] = _stack(
-            tuple(_stack(batch_i) for batch_i in batch)
-        )
+    # stack messages in into single arrays
+    for batched_inputs in (batched_inputs_m, batched_inputs_t):
+        for key, batch in batched_inputs.items():
+            batched_inputs[key] = _stack(
+                tuple(_stack(batch_i) for batch_i in batch)
+            )
     for rank, tensors in batched_tensors.items():
         batched_tensors[rank] = _stack(tensors)
 
     # make numeric masks for updating output to input messages
-    masks = {}
-    for pair in input_locs:
-        (fi, ranki, ii, bi) = input_locs[pair]
-        (fo, ranko, io, bo) = output_locs[pair]
-        key = (fi, ranki, fo, ranko)
-        try:
-            maskin, maskout = masks[key]
-        except KeyError:
-            maskin, maskout = masks[key] = [], []
-        maskin.append([ii, bi])
-        maskout.append([io, bo])
+    masks_m = {}
+    masks_t = {}
+    for masks, input_locs, output_locs in [
+        (masks_m, input_locs_m, output_locs_t),
+        (masks_t, input_locs_t, output_locs_m),
+    ]:
+        for pair in input_locs:
+            (ranki, ii, bi) = input_locs[pair]
+            (ranko, io, bo) = output_locs[pair]
+            key = (ranki, ranko)
+            try:
+                maskin, maskout = masks[key]
+            except KeyError:
+                maskin, maskout = masks[key] = [], []
+            maskin.append([ii, bi])
+            maskout.append([io, bo])
 
-    for key, (maskin, maskout) in masks.items():
-        masks[key] = _array(maskin), _array(maskout)
+        for key, (maskin, maskout) in masks.items():
+            masks[key] = _array(maskin), _array(maskout)
 
-    return batched_inputs, batched_tensors, input_locs, output_locs, masks
+    return (
+        batched_inputs_m,
+        batched_inputs_t,
+        batched_tensors,
+        input_locs_m,
+        input_locs_t,
+        masks_m,
+        masks_t,
+    )
 
 
 def compute_all_hyperind_batch_messages_tree(bm):
+    """
+    """
     ndim = len(bm)
 
     if ndim == 2:
@@ -170,6 +188,8 @@ def compute_all_hyperind_batch_messages_tree(bm):
 
 
 def compute_all_hyperind_batch_messages_prod(bm, smudge_factor=1e-12):
+    """
+    """
     backend = ar.infer_backend(bm)
     _prod = ar.get_lib_fn(backend, "prod")
     _reshape = ar.get_lib_fn(backend, "reshape")
@@ -213,11 +233,11 @@ def compute_all_tensor_batch_messages_tree(bx, bm):
         ml, mr = bm[:k], bm[k:]
 
         # contract the right messages to get new left array
-        eql = _inds_to_eq(((-1, *js), *((-1, j) for j in jr)), (-1, *jl))
+        eql = inds_to_eq(((-1, *js), *((-1, j) for j in jr)), (-1, *jl))
         xl = _einsum(eql, bx, *(mr[i] for i in range(mr.shape[0])))
 
         # contract the left messages to get new right array
-        eqr = _inds_to_eq(((-1, *js), *((-1, j) for j in jl)), (-1, *jr))
+        eqr = inds_to_eq(((-1, *js), *((-1, j) for j in jl)), (-1, *jr))
         xr = _einsum(eqr, bx, *(ml[i] for i in range(ml.shape[0])))
 
         # add the queue for possible further halving
@@ -235,7 +255,7 @@ def compute_all_tensor_batch_messages_prod(bx, bm, smudge_factor=1e-12):
     ndim = len(bm)
     x_inds = (-1, *range(ndim))
     m_inds = [(-1, i) for i in range(ndim)]
-    eq = _inds_to_eq((x_inds, *m_inds), x_inds)
+    eq = inds_to_eq((x_inds, *m_inds), x_inds)
     bmx = _einsum(
         eq,
         bx,
@@ -248,40 +268,39 @@ def compute_all_tensor_batch_messages_prod(bx, bm, smudge_factor=1e-12):
     mouts = []
     for i in range(ndim):
         # sum all but ith index, apply inverse gate to that
-        eq = _inds_to_eq((x_inds, m_inds[i]), m_inds[i])
+        eq = inds_to_eq((x_inds, m_inds[i]), m_inds[i])
         mouts.append(_einsum(eq, bmx, bminv[i]))
 
     return _stack(mouts)
 
 
-def _compute_output_single(
-    f,
-    rank,
+def _compute_output_single_t(
     bm,
-    batched_tensors,
+    bx,
     _reshape,
     _sum,
     smudge_factor=1e-12,
 ):
-    if f:
-        # tensor message
-        bx = batched_tensors[rank]
-        bmo = compute_all_tensor_batch_messages_tree(bx, bm)
-        # bmo = compute_all_tensor_batch_messages_prod(bx, bm, smudge_factor)
-    else:
-        # index message
-        # bmo = compute_all_hyperind_batch_messages_tree(bm)
-        bmo = compute_all_hyperind_batch_messages_prod(bm, smudge_factor)
-
+    # tensor messages
+    bmo = compute_all_tensor_batch_messages_tree(bx, bm)
+    # bmo = compute_all_tensor_batch_messages_prod(bx, bm, smudge_factor)
     # normalize
     bmo /= _reshape(_sum(bmo, axis=-1), (*ar.shape(bmo)[:-1], 1))
+    return bmo
 
+
+def _compute_output_single_m(bm, _reshape, _sum, smudge_factor=1e-12):
+    # index messages
+    # bmo = compute_all_hyperind_batch_messages_tree(bm)
+    bmo = compute_all_hyperind_batch_messages_prod(bm, smudge_factor)
+    # normalize
+    bmo /= _reshape(_sum(bmo, axis=-1), (*ar.shape(bmo)[:-1], 1))
     return bmo
 
 
 def compute_outputs(
     batched_inputs,
-    batched_tensors,
+    batched_tensors=None,
     smudge_factor=1e-12,
     _pool=None,
 ):
@@ -290,29 +309,32 @@ def compute_outputs(
     _sum = ar.get_lib_fn(backend, "sum")
     _reshape = ar.get_lib_fn(backend, "reshape")
 
-    batched_outputs = {}
-
-    if _pool is None:
-        for (f, rank), bm in batched_inputs.items():
-            bmo = _compute_output_single(
-                f, rank, bm, batched_tensors, _reshape, _sum, smudge_factor
-            )
-            batched_outputs[f, rank] = bmo
-
+    if batched_tensors is not None:
+        # tensor messages
+        f = _compute_output_single_t
+        f_args = {
+            rank: (bm, batched_tensors[rank], _reshape, _sum, smudge_factor)
+            for rank, bm in batched_inputs.items()
+        }
     else:
-        for (f, rank), bm in batched_inputs.items():
-            batched_outputs[f, rank] = _pool.submit(
-                _compute_output_single,
-                f,
-                rank,
-                bm,
-                batched_tensors,
-                _reshape,
-                _sum,
-                smudge_factor,
-            )
-        for key, f in batched_outputs.items():
-            batched_outputs[key] = f.result()
+        # index messages
+        f = _compute_output_single_m
+        f_args = {
+            rank: (bm, _reshape, _sum, smudge_factor)
+            for rank, bm in batched_inputs.items()
+        }
+
+    batched_outputs = {}
+    if _pool is None:
+        # sequential process
+        for rank, args in f_args.items():
+            batched_outputs[rank] = f(*args)
+    else:
+        # parallel process
+        for rank, args in f_args.items():
+            batched_outputs[rank] = _pool.submit(f, *args)
+        for key, fut in batched_outputs.items():
+            batched_outputs[key] = fut.result()
 
     return batched_outputs
 
@@ -350,72 +372,80 @@ def update_outputs_to_inputs(
     _sum = ar.get_lib_fn(backend, "sum")
     _abs = ar.get_lib_fn(backend, "abs")
 
-    if _pool is None:
-        dms = (
-            _update_output_to_input_single(
-                batched_inputs[fi, ranki],
-                batched_outputs[fo, ranko],
-                maskin,
-                maskout,
-                _max,
-                _sum,
-                _abs,
-            )
-            for (fi, ranki, fo, ranko), (maskin, maskout) in masks.items()
+    f = _update_output_to_input_single
+    f_args = (
+        (
+            batched_inputs[ranki],
+            batched_outputs[ranko],
+            maskin,
+            maskout,
+            _max,
+            _sum,
+            _abs,
         )
+        for (ranki, ranko), (maskin, maskout) in masks.items()
+    )
+
+    if _pool is None:
+        # sequential process
+        dms = (f(*args) for args in f_args)
     else:
-        fs = [
-            _pool.submit(
-                _update_output_to_input_single,
-                batched_inputs[fi, ranki],
-                batched_outputs[fo, ranko],
-                maskin,
-                maskout,
-                _max,
-                _sum,
-                _abs,
-            )
-            for (fi, ranki, fo, ranko), (maskin, maskout) in masks.items()
-        ]
-        dms = (f.result() for f in fs)
+        # parallel process
+        futs = [_pool.submit(f, *args) for args in f_args]
+        dms = (fut.result() for fut in futs)
 
     return max(dms)
 
 
-def extract_messages_from_inputs(batched_inputs, input_locs):
+def extract_messages_from_inputs(
+    batched_inputs_m,
+    batched_inputs_t,
+    input_locs_m,
+    input_locs_t,
+):
     """Get all messages as a dict from the batch stacked input form."""
-    return {
-        pair: batched_inputs[f, rank][i, b, :]
-        for pair, (f, rank, i, b) in input_locs.items()
-    }
-
-
-def extract_messages_from_outputs(batched_outputs, output_locs):
-    """Get all messages as a dict from the batch stacked output form."""
-    return {
-        pair: batched_outputs[f, rank][i, b, :]
-        for pair, (f, rank, i, b) in output_locs.items()
-    }
+    messages = {}
+    for pair, (rank, i, b) in input_locs_m.items():
+        messages[pair] = batched_inputs_m[rank][i, b, :]
+    for pair, (rank, i, b) in input_locs_t.items():
+        messages[pair] = batched_inputs_t[rank][i, b, :]
+    return messages
 
 
 def iterate_vec_belief_propagation(
-    batched_inputs,
+    batched_inputs_m,
+    batched_inputs_t,
     batched_tensors,
-    masks,
+    masks_m,
+    masks_t,
     smudge_factor=1e-12,
     _pool=None,
 ):
     """ """
-    batched_outputs = compute_outputs(
-        batched_inputs,
-        batched_tensors,
+    # compute tensor messages
+    batched_outputs_t = compute_outputs(
+        batched_inputs=batched_inputs_t,
+        batched_tensors=batched_tensors,
         smudge_factor=smudge_factor,
         _pool=_pool,
     )
-    max_dm = update_outputs_to_inputs(
-        batched_inputs, batched_outputs, masks, _pool=_pool
+    # update the index input messages
+    t_max_dm = update_outputs_to_inputs(
+        batched_inputs_m, batched_outputs_t, masks_m, _pool=_pool
     )
-    return batched_inputs, max_dm
+
+    # compute index messages
+    batched_outputs_m = compute_outputs(
+        batched_inputs=batched_inputs_m,
+        batched_tensors=None,
+        smudge_factor=smudge_factor,
+        _pool=_pool,
+    )
+    # update the tensor input messages
+    m_max_dm = update_outputs_to_inputs(
+        batched_inputs_t, batched_outputs_m, masks_t, _pool=_pool
+    )
+    return batched_inputs_m, batched_inputs_t, max(t_max_dm, m_max_dm)
 
 
 def maybe_get_thread_pool(thread_pool):
@@ -479,11 +509,13 @@ def run_belief_propagation(
     pool = maybe_get_thread_pool(thread_pool)
 
     (
-        batched_inputs,
+        batched_inputs_m,
+        batched_inputs_t,
         batched_tensors,
-        input_locs,
-        _,
-        masks,
+        input_locs_m,
+        input_locs_t,
+        masks_m,
+        masks_t,
     ) = initialize_batch_messages(tn, messages)
 
     if progbar:
@@ -495,10 +527,16 @@ def run_belief_propagation(
 
     converged = False
     for _ in it:
-        batched_inputs, max_dm = iterate_vec_belief_propagation(
-            batched_inputs,
+        (
+            batched_inputs_m,
+            batched_inputs_t,
+            max_dm,
+         ) = iterate_vec_belief_propagation(
+            batched_inputs_m,
+            batched_inputs_t,
             batched_tensors,
-            masks,
+            masks_m,
+            masks_t,
             smudge_factor=smudge_factor,
             _pool=pool,
         )
@@ -510,7 +548,12 @@ def run_belief_propagation(
         if converged:
             break
 
-    messages = extract_messages_from_inputs(batched_inputs, input_locs)
+    messages = extract_messages_from_inputs(
+        batched_inputs_m,
+        batched_inputs_t,
+        input_locs_m,
+        input_locs_t,
+    )
 
     return messages, converged
 
@@ -568,7 +611,7 @@ def compute_tensor_marginal(tn, tid, messages):
         eq_inds.append((i,))
         arrays.append(mix)
 
-    eq = _inds_to_eq(tuple(eq_inds), t_eq_inds)
+    eq = inds_to_eq(tuple(eq_inds), t_eq_inds)
     m = ar.do("einsum", eq, *arrays)
     return m / ar.do("sum", m)
 
@@ -639,7 +682,7 @@ def compute_free_entropy_from_messages(tn, messages):
         for i, ix in enumerate(t.inds):
             eq_inds.append((i,))
             arrays.append(messages[ix, tid])
-        eq = _inds_to_eq(tuple(eq_inds), t_eq_inds)
+        eq = inds_to_eq(tuple(eq_inds), t_eq_inds)
         mt = _einsum(eq, *arrays)
 
         F += _log(_sum(mt))
@@ -707,8 +750,8 @@ def sample_belief_propagation(
         The convergence tolerance for each message passing run.
     smudge_factor : float, optional
         A small number to add to each message to avoid zeros. Making this large
-        is similar to adding a temperature, which can aid convergence but likely
-        produces less accurate marginals.
+        is similar to adding a temperature, which can aid convergence but
+        likely produces less accurate marginals.
     bias : bool, optional
         Whether to bias the sampling towards the largest marginal. If ``False``
         (the default), then indices are sampled proportional to their
@@ -758,7 +801,7 @@ def sample_belief_propagation(
     if progbar:
         import tqdm
 
-        pbar = tqdm.tqdm(total=len(tn_config.ind_map))
+        pbar = tqdm.tqdm(total=len(output_inds))
     else:
         pbar = None
 
