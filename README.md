@@ -1,6 +1,6 @@
 ## Tensor Network Message Passing Algorithms
 
-This repository contains the code used to generate the results in arxiv.org/...
+This repository contains the code used to generate the results in [One-step replica symmetry breaking in the language of tensor networks](https://arxiv.org/abs/2306.15004)
 
 ## Install
 
