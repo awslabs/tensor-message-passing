@@ -47,7 +47,6 @@ def initialize_batch_messages(tn, messages=None):
     if messages is None:
         messages = initialize_messages(tn)
 
-
     backend = ar.infer_backend(next(iter(messages.values())))
     _stack = ar.get_lib_fn(backend, "stack")
     _array = ar.get_lib_fn(backend, "array")
@@ -98,12 +97,9 @@ def initialize_batch_messages(tn, messages=None):
 
         batch_t.append(t.data)
 
-    # stack messages in into single arrays
-    for batched_inputs in (batched_inputs_m, batched_inputs_t):
-        for key, batch in batched_inputs.items():
-            batched_inputs[key] = _stack(
-                tuple(_stack(batch_i) for batch_i in batch)
-            )
+    # stack into single arrays
+    for key, batch in batched_inputs.items():
+        batched_inputs[key] = _stack(tuple(_stack(batch_i) for batch_i in batch))
     for rank, tensors in batched_tensors.items():
         batched_tensors[rank] = _stack(tensors)
 
@@ -140,8 +136,7 @@ def initialize_batch_messages(tn, messages=None):
 
 
 def compute_all_hyperind_batch_messages_tree(bm):
-    """
-    """
+    """ """
     ndim = len(bm)
 
     if ndim == 2:
@@ -188,8 +183,7 @@ def compute_all_hyperind_batch_messages_tree(bm):
 
 
 def compute_all_hyperind_batch_messages_prod(bm, smudge_factor=1e-12):
-    """
-    """
+    """ """
     backend = ar.infer_backend(bm)
     _prod = ar.get_lib_fn(backend, "prod")
     _reshape = ar.get_lib_fn(backend, "reshape")
@@ -363,9 +357,7 @@ def _update_output_to_input_single(
     return dm
 
 
-def update_outputs_to_inputs(
-    batched_inputs, batched_outputs, masks, _pool=None
-):
+def update_outputs_to_inputs(batched_inputs, batched_outputs, masks, _pool=None):
     """Update the stacked input messages from the stacked output messages."""
     backend = ar.infer_backend(next(iter(batched_outputs.values())))
     _max = ar.get_lib_fn(backend, "max")
@@ -531,7 +523,7 @@ def run_belief_propagation(
             batched_inputs_m,
             batched_inputs_t,
             max_dm,
-         ) = iterate_vec_belief_propagation(
+        ) = iterate_vec_belief_propagation(
             batched_inputs_m,
             batched_inputs_t,
             batched_tensors,
@@ -820,9 +812,7 @@ def sample_belief_propagation(
 
             warnings.warn("BP did not converge.")
 
-        marginals = compute_all_index_marginals_from_messages(
-            tn_config, messages
-        )
+        marginals = compute_all_index_marginals_from_messages(tn_config, messages)
 
         # choose largest bias
         ix, p = max(

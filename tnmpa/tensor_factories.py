@@ -46,14 +46,13 @@ def bp_clause_tensor(clause):
     Tensor
     """
 
-    data_tc = np.ones([2] * len(clause.pos))
-    sl = tuple(1 if clause(p) else 0 for p in clause.pos)
+    data_tc = np.ones([2] * len(clause.variables))
+    sl = tuple(1 if clause(p.name) else 0 for p in clause.variables)
     data_tc[sl] = 0
 
     tc = qtn.Tensor(
         data=data_tc,
-        inds=tuple(f"p{p}_{clause.label}" for p in clause.pos),
-        tags=("CLAUSE",) + clause.tags,
+        inds=tuple(f"{p.name}_{clause.name}" for p in clause.variables),
     )
     return tc
 
@@ -83,10 +82,11 @@ def bp_variable_tensor(variable, clauses, factor_threshold=8, open_leg=False):
     # t[0,..,0] = 1, or
     # t[1,..,1] = 1,
     # and zero otherwise
-    clabels = [c.label for c in clauses]
-    copy_inds = [f"p{variable}_" + c for c in clabels]
+    clabels = [c.name for c in clauses]
+    copy_inds = [f"{variable}_" + c for c in clabels]
+
     if open_leg:
-        copy_inds.append(f"p{variable}")
+        copy_inds.append(f"{variable}")
 
     if len(clabels) >= factor_threshold:
         arrays = [

@@ -162,7 +162,7 @@ def two_norm_bp_decimation(instance, envs_tensors):
     return decimation(two_norm_bp_biases, instance, envs_tensors)
 
 
-def mp_clause_dense_update(new_envs, envs_tensors, cc, v, clauses, which="BP"):
+def mp_clause_dense_update(new_envs, envs_tensors, cc, v, instance, which="BP"):
     """
     Compute the updated message from variable `cc` to clause `v`, using
     survey propagation.
@@ -184,20 +184,20 @@ def mp_clause_dense_update(new_envs, envs_tensors, cc, v, clauses, which="BP"):
         All the clauses in the current problem
     """
 
-    vc = clauses[cc]
     if which == "BP":
-        dense_c = bp_clause_tensor(clauses[cc])
+        dense_c = bp_clause_tensor(instance.graph.nodes[cc]["data"])
     elif which == "SP":
-        dense_c = sp_clause_tensor(clauses[cc])
+        dense_c = sp_clause_tensor(instance.graph.nodes[cc]["data"])
 
     envs = [
         qtn.Tensor(
             data=d,
-            inds=(f"p{p}_{cc}",),
+            inds=(f"{p}_{cc}",),
         )
         for p, d in new_envs[cc].items()
         if p != v
     ]
+
     tensors = [dense_c] + envs
     out_env = qtn.tensor_contract(*tensors).data
     envs_tensors[v][cc] = out_env / out_env.sum()
@@ -205,7 +205,7 @@ def mp_clause_dense_update(new_envs, envs_tensors, cc, v, clauses, which="BP"):
     return np.sum(np.absolute(envs_tensors[v][cc] - new_envs[v][cc]))
 
 
-def mp_variable_dense_update(new_envs, envs_tensors, cc, v, clauses, which="BP"):
+def mp_variable_dense_update(new_envs, envs_tensors, cc, v, instance, which="BP"):
     """
     Compute the updated message from variable `cc` to clause `v`, using
     belief propagation.
@@ -224,16 +224,17 @@ def mp_variable_dense_update(new_envs, envs_tensors, cc, v, clauses, which="BP")
         All the clauses in the current problem
     """
 
-    v_clauses = [clauses[c_] for c_ in new_envs[v].keys()]
+    v_clauses = [instance.graph.nodes[c_]["data"] for c_ in new_envs[v].keys()]
     # we need to fix the issue with copy tensor MPS
     if which == "BP":
         dense_v = bp_variable_tensor(v, v_clauses)
     elif which == "SP":
         dense_v = sp_variable_tensor(v, v_clauses)
+
     envs = [
         qtn.Tensor(
             data=d,
-            inds=(f"p{v}_{c_}",),
+            inds=(f"{v}_{c_}",),
         )
         for c_, d in new_envs[v].items()
         if c_ != cc
@@ -402,7 +403,7 @@ def bp_variable_update(new_envs, envs_tensors, cc, v):
     return np.sum(np.absolute(envs_tensors[cc][v] - new_envs[cc][v]))
 
 
-def bp_clause_update(new_envs, envs_tensors, cc, v, clauses):
+def bp_clause_update(new_envs, envs_tensors, cc, v, instance):
     """
     Compute the updated message from variable `cc` to clause `v`, using
     belief propagation.
@@ -417,11 +418,11 @@ def bp_clause_update(new_envs, envs_tensors, cc, v, clauses):
         The clause receiving the updated messages
     v: int
         The variable we want to update
-    clauses: dict[str, ksat_instance.Clause]
+    instance: tnmpa.factor_graph.KsatInstance
         All the clauses in the current problem
     """
 
-    vc = clauses[cc]
+    vc = instance.graph.nodes[cc]["data"]
     prob = np.prod([p[int(vc(k))] for k, p in new_envs[cc].items() if k != v])
 
     idx = 1 if vc(v) else 0
@@ -527,9 +528,6 @@ def message_passing(
         Summary of message passing
     """
 
-    clauses = instance.clauses
-    variables = instance.variables
-
     count = 0
     max_distances = []
 
@@ -542,9 +540,9 @@ def message_passing(
         max_dist = None
 
         distances = []
-        for v in variables:
-            for cc in envs_tensors[v].keys():
-                dist_v, dist_c = func_update(new_envs, envs_tensors, cc, v, clauses)
+        for v in instance.variables:
+            for cc in instance.graph.neighbors(v):
+                dist_v, dist_c = func_update(new_envs, envs_tensors, cc, v, instance)
                 dist_envs = max(dist_v, dist_c)
                 if store_distances:
                     distances.append(dist_v)

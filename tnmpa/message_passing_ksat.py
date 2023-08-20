@@ -4,6 +4,8 @@ from itertools import compress
 
 import numpy as np
 
+from tnmpa.base.factor_graph import Factor, Variable
+
 from .mp_solvers import (
     belief_propagation,
     bp_decimation,
@@ -53,7 +55,7 @@ class MessagePassingKsatSolver:
 
         # keep a full copy of the initial clauses to check the solution
         # as self.instance will be modified while solving
-        self._check_clauses = copy.deepcopy(self.instance.clauses)
+        self._check_clauses = copy.deepcopy(self.instance)
         self.dict_tensors()
 
     def dict_tensors(self):
@@ -68,20 +70,18 @@ class MessagePassingKsatSolver:
         # placeholder for the tensors
         self.envs_tensors = {}
 
-        # loop over all instances of the problem
-        for kc, vc in self.instance.clauses.items():
-            # add corresponding random, initial envs tensors
-            self.envs_tensors[kc] = {
-                v: self.rand_env(self.dim_envs, which="clause") for v in vc.pos
-            }
-
-        # loop over all variables of the problem
-        for var in self.instance.variables:
-            # add corresponding random, initial envs tensors
-            self.envs_tensors[var] = {
-                c: self.rand_env(self.dim_envs, which="variable")
-                for c in self.instance.var_clause_map[f"V{var}"]
-            }
+        for node in self.instance.graph.nodes:
+            neighbors = self.instance.graph.neighbors(node)
+            if self.instance.graph.nodes[node]["bipartite"] == 0:
+                self.envs_tensors[node] = {
+                    ngbr: self.rand_env(self.dim_envs, which="variable")
+                    for ngbr in neighbors
+                }
+            elif self.instance.graph.nodes[node]["bipartite"] == 1:
+                self.envs_tensors[node] = {
+                    ngbr: self.rand_env(self.dim_envs, which="clause")
+                    for ngbr in neighbors
+                }
 
     def check_solution(self, fixed_vars, vals):
         """
@@ -89,10 +89,10 @@ class MessagePassingKsatSolver:
         """
         sol = dict(zip(fixed_vars, vals))
         count = 0
-        for c in self._check_clauses.values():
+        for c in self.instance.factors:
             try:
                 # if the solutino is only partial, this will fail
-                vals = tuple(sol[p] for p in c.pos)
+                vals = tuple(sol[p] for p in c.variables)
                 # if a clause is violated, the variables take the same values as in the unsat_index
                 if vals == c.unsat_index:
                     count += 1
@@ -109,124 +109,45 @@ class MessagePassingKsatSolver:
         if bias != 0.0:
             return False if bias > 0.0 else True
         else:
-            ranks = list(map(len, self.instance.var_clause_map.values()))
-            # pick variable with largest order
-            var = int(
-                list(self.instance.var_clause_map.keys())[ranks.index(max(ranks))][1:]
+            # pick variable with largest degree
+            var = max(
+                self.instance.degree_variables, key=self.instance.degree_variables.get
             )
             # fix it to the value that satisfies most of its clauses
             vals_var = [
-                self.instance.clauses[c](var)
-                for c in self.instance.var_clause_map[f"V{var}"]
+                self.instance.graph.nodes[n]["data"](var)
+                for n in self.instance.graph.neighbors(var)
             ]
             return vals_var.count(False) > vals_var.count(True)
-
-    def check_contradictions(self, len_one_clauses):
-        # check there are no contradictions
-        positions = []
-        same_pos = {}
-        # collect length one clauses at same position
-        for k, c in enumerate(len_one_clauses):
-            if c.pos[0] not in positions:
-                positions.append(c.pos[0])
-                same_pos[c.pos[0]] = [k]
-            else:
-                same_pos[c.pos[0]].append(k)
-        # if two length one clauses have different values at the same position,
-        # we reached a contradiciton. If they all have the same value,
-        for pos, ixs in same_pos.items():
-            if len(ixs) == 1:
-                continue
-            if len(set([len_one_clauses[k](pos) for k in ixs])) != 1:
-                for k in ixs:
-                    print(
-                        len_one_clauses[k].pos,
-                        len_one_clauses[k].vals,
-                        len_one_clauses[k].label,
-                    )
-                raise ValueError("Contradiction reached")
-        return len_one_clauses
-
-    def remove_len1_clauses(self):
-        """
-        Iteratively remove all cluases of length one. If a clause of lenght one is left
-        in the instance, the corresponding variable must take the value that satisfies the clause.
-        """
-        while True:
-            # collect all the indices of len one clauses
-            idx_l1_clauses = (
-                np.array([len(c.pos) for c in self.instance.clauses.values()]) == 1
-            )
-            rm_clauses = list(compress(self.instance.clauses.values(), idx_l1_clauses))
-
-            # if empty, exit
-            if len(rm_clauses) == 0:
-                break
-            # else:
-            #    print(f"rm len 1 clauses: {[c.label for c in rm_clauses]}")
-            # check no contradiction is reached
-            rm_clauses = self.check_contradictions(rm_clauses)
-
-            # loop over all len one clauses
-            for c in rm_clauses:
-                # fix the variable to satisfy the clause
-                v, val = c.pos[0], bool(not c(c.pos[0]))
-
-                # fix variable and value to satisfy the clause
-                self.fixed_vars.append(v)
-                self.vals.append(val)
-
-                # remove it from the variables
-                self.instance.variables = self.instance.variables[
-                    self.instance.variables != v
-                ]
-
-                # remove the variable from the instance, update neighboring clauses and variables
-                clauses, (variables, vals) = self.instance.remove_var(v, val)
 
     def kick_envs(self, noise=None):
         if noise == None:
             return
-        for cc, envs in self.envs_tensors.items():
-            for vv in envs.keys():
-                if isinstance(cc, str):
-                    self.envs_tensors[cc][vv] += noise * self.rand_env(
-                        self.dim_envs, which="clause"
-                    )
-                else:
-                    self.envs_tensors[cc][vv] += noise * self.rand_env(
+        for n in self.instance.graph.nodes:
+            for ngbr in self.instance.graph.neighbors(n):
+                if isinstance(n, Variable):
+                    self.envs_tensors[n][ngbr] += noise * self.rand_env(
                         self.dim_envs, which="variable"
                     )
+                if isinstance(n, Factor):
+                    self.envs_tensors[n][ngbr] += noise * self.rand_env(
+                        self.dim_envs, which="clause"
+                    )
 
-    def prune_envs(self, noise=None):
+    def prune_envs(self):
         """
         Remove the environments based on the current instance state.
         Optionally add noise to the remaining environments
         """
         to_delete = []
-        for cc, envs in self.envs_tensors.items():
-            if isinstance(cc, str):
-                if cc not in self.instance.clauses.keys():
-                    to_delete.append((cc,))
-                else:
-                    for vv in envs.keys():
-                        if vv not in self.instance.variables:
-                            to_delete.append((cc, vv))
-                        elif noise != None:
-                            self.envs_tensors[cc][vv] += noise * self.rand_env(
-                                self.dim_envs, which="clause"
-                            )
+
+        for k1, envs in self.envs_tensors.items():
+            if k1 not in self.instance.graph.nodes:
+                to_delete.append((k1,))
             else:
-                if cc not in self.instance.variables:
-                    to_delete.append((cc,))
-                else:
-                    for vv in envs.keys():
-                        if vv not in self.instance.clauses.keys():
-                            to_delete.append((cc, vv))
-                        elif noise != None:
-                            self.envs_tensors[cc][vv] += noise * self.rand_env(
-                                self.dim_envs, which="variable"
-                            )
+                for k2 in envs.keys():
+                    if k2 not in self.instance.graph.nodes:
+                        to_delete.append((k1, k2))
 
         for d in to_delete:
             if len(d) == 1:
@@ -240,7 +161,6 @@ class MessagePassingKsatSolver:
         threshold_alpha=None,
         verbose=True,
         env_noise=0.0,
-        which_condition="any",
         **tnbp_kwargs,
     ):
         # show progress
@@ -269,7 +189,7 @@ class MessagePassingKsatSolver:
             """
             # check if there are still variables to fix
             convergence_criteria = [
-                len(self.instance.variables) > 0 and len(self.instance.clauses) > 0
+                len(self.instance.variables) > 0 and len(self.instance.factors) > 0
             ]
 
             # check if the current solution does not satisfy the instance
@@ -282,7 +202,7 @@ class MessagePassingKsatSolver:
                 convergence_criteria.append(abs(bias) > threshold_bias)
             if threshold_alpha is not None:
                 convergence_criteria.append(
-                    len(self.instance.clauses) / len(self.instance.variables)
+                    len(self.instance.factors) / len(self.instance.variables)
                     > threshold_alpha
                 )
 
@@ -312,9 +232,7 @@ class MessagePassingKsatSolver:
 
             # remove the variable from the instance, together with all the
             # clauses (and potentially other variables) that are influenced by that
-            update_clauses, (update_variables, update_vals) = self.instance.remove_var(
-                var, val
-            )
+            removed_clauses = self.instance.fix_variable(var, val)
 
             # check if something went wrong
             count, _ = self.check_solution(self.fixed_vars, self.vals)
@@ -322,17 +240,14 @@ class MessagePassingKsatSolver:
                 print(f"count = {count} after remove_var")
                 return
 
-            # if there is any length-one clause, remove it and fix its variable
-            # to satisfy it. Update instance and tensors accordingly
-            # self.remove_len1_clauses()
-            self.prune_envs(noise=env_noise)
+            self.prune_envs()
 
             # Monitor progress
             if verbose:
                 log = ""
-                log += f"{len(self.instance.clauses)}\t{len(self.instance.variables)}"
+                log += f"{len(self.instance.factors)}\t{len(self.instance.variables)}"
                 if len(self.instance.variables) > 0:
-                    log += f"\t{len(self.instance.clauses)/len(self.instance.variables):.2f}"
+                    log += f"\t{len(self.instance.factors)/len(self.instance.variables):.2f}"
                 else:
                     log += f"\t0"
                 log += f"\t{count}"
@@ -463,13 +378,14 @@ class BeliefPropagation(MessagePassingKsatSolver):
     @property
     def entropy(self):
         entropy = 0
+        degrees = self.instance.degree_variables
         for v in self.instance.variables:
-            v_rank = len(self.instance.var_clause_map[f"V{v}"])
+            v_rank = degrees[v]
             m = self.variable_marginal(v)
             entropy -= (1 - v_rank) * m.dot(
                 np.log(m, out=np.zeros_like(m), where=(m != 0))
             )
-        for c in self.instance.clauses.keys():
+        for c in self.instance.factors:
             m = self.clause_marginal(c)
             m /= sum(m)
             entropy -= m.dot(np.log(m, out=np.zeros_like(m), where=(m != 0)))

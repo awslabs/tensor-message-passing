@@ -16,7 +16,7 @@ class Variable:
         return (self.name == other.name) and (self.dim == other.dim)
 
     def __repr__(self) -> str:
-        return self.name
+        return f"Variable({self.name}, dim={self.dim})"
 
 
 class Factor:
@@ -42,6 +42,34 @@ class FactorGraph:
             self.graph.add_node(v.name, bipartite=0, data=v)
             self.graph.add_edge(factor.name, v.name)
 
+    @property
+    def factors(self):
+        return [
+            self.graph.nodes[n]["data"]
+            for n in self.graph.nodes
+            if self.graph.nodes[n]["bipartite"] == 1
+        ]
+
+    @property
+    def variables(self):
+        return [n for n in self.graph.nodes if self.graph.nodes[n]["bipartite"] == 0]
+
+    @property
+    def degree_variables(self):
+        return {
+            k: v
+            for k, v in dict(self.graph.degree).items()
+            if self.graph.nodes[k]["bipartite"] == 0
+        }
+
+    @property
+    def degree_factors(self):
+        return {
+            k: v
+            for k, v in dict(self.graph.degree).items()
+            if self.graph.nodes[k]["bipartite"] == 1
+        }
+
 
 class Clause(Factor):
     def __init__(
@@ -49,6 +77,9 @@ class Clause(Factor):
     ) -> None:
         super().__init__(name, list([Variable(f"v{p}") for p in variables]))
         self.values = tuple(values)
+        self.unsat_index = tuple(
+            1 if self.__call__(p.name) else 0 for p in self.variables
+        )
 
     def __eq__(self, other):
         return (
@@ -59,7 +90,13 @@ class Clause(Factor):
 
     def __call__(self, var):
         # return the value of var in this clause
-        return self.values[self.variables.index(var)]
+        variables = [v.name for v in self.variables]
+        return self.values[variables.index(var)]
+
+    def __repr__(self):
+        return (
+            f"Clause({self.name}, variables: {self.variables}, values: {self.values})"
+        )
 
     def remove_variable(self, var):
         # remove a variable from this clause
@@ -91,7 +128,10 @@ class KsatInstance(FactorGraph):
         v = self.graph.nodes[variable]["data"]
 
         for clause in neighbors:
-            if self.graph.nodes[clause]["data"](v) != value:
+            if (
+                self.graph.nodes[clause]["data"](v.name) != value
+                or len(self.graph.nodes[clause]["data"].variables) == 0
+            ):
                 self.graph.remove_node(clause)
             else:
                 self.graph.nodes[clause]["data"].remove_variable(v)
