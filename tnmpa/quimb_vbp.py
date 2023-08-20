@@ -97,9 +97,10 @@ def initialize_batch_messages(tn, messages=None):
 
         batch_t.append(t.data)
 
-    # stack into single arrays
-    for key, batch in batched_inputs.items():
-        batched_inputs[key] = _stack(tuple(_stack(batch_i) for batch_i in batch))
+    # stack messages in into single arrays
+    for batched_inputs in (batched_inputs_m, batched_inputs_t):
+        for key, batch in batched_inputs.items():
+            batched_inputs[key] = _stack(tuple(_stack(batch_i) for batch_i in batch))
     for rank, tensors in batched_tensors.items():
         batched_tensors[rank] = _stack(tensors)
 
