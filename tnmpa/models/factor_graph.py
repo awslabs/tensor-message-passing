@@ -6,7 +6,7 @@ from tnmpa.generators.random import generate_random_ksat_instance
 
 
 class Variable:
-    """Base class for a factor, an element of a factor graph."""
+    """Base class for a variables, in a factor."""
 
     def __init__(self, name: str, dim: int = 2) -> None:
         self.name = name
@@ -123,7 +123,7 @@ class KsatInstance(FactorGraph):
         factors = [Clause(f"c{k}", positions[k], values[k]) for k in range(M)]
         super().__init__(factors)
 
-    def fix_variable(self, variable, value):
+    def fix_variable(self, variable: str, value: bool) -> None:
         neighbors = list(self.graph.neighbors(variable))
         v = self.graph.nodes[variable]["data"]
 
@@ -137,3 +137,25 @@ class KsatInstance(FactorGraph):
                 self.graph.nodes[clause]["data"].remove_variable(v)
 
         self.graph.remove_node(variable)
+
+    def get_clause(self, clause_name: str) -> Clause:
+        return self.graph.nodes[clause_name]["data"]
+
+    def hyper_tn(self):
+        import quimb.tensor as qtn
+
+        import tnmpa.tensor_factories as tfac
+
+        tn = qtn.TensorNetwork([])
+        for c in self.factors:
+            # add one tensor for each clause
+            tn_c = tfac.bp_clause_tensor(c, hyper_tn=True)
+            tn.add(tn_c, virtual=True)
+        for v in tn.outer_inds():
+            tn.add(
+                qtn.tensor_core.COPY_tensor(
+                    d=2,
+                    inds=(v,),
+                )
+            )
+        return tn

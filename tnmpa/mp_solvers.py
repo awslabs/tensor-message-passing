@@ -105,7 +105,7 @@ def sp_biases(envs, instance, v):
     # clause, we update the probabilities in different ways
     for c_label, data in envs.items():
         # get the clause that correspond to the given env
-        c = instance.clauses[c_label]
+        c = instance.graph.nodes[c_label]["data"]
         # check the sign of the variable in this clause
         if c(v):
             p0 *= data[1]
@@ -252,7 +252,7 @@ def mp_variable_dense_update(new_envs, envs_tensors, cc, v, instance, which="BP"
     return np.sum(np.absolute(envs_tensors[cc][v] - new_envs[cc][v]))
 
 
-def sp_variable_update(new_envs, envs_tensors, cc, v, clauses):
+def sp_variable_update(new_envs, envs_tensors, cc, v, instance):
     """
     Compute the updated message from variable `v` to clause `cc`, using
     survey propagation.
@@ -284,11 +284,16 @@ def sp_variable_update(new_envs, envs_tensors, cc, v, clauses):
     """
 
     # contribution from all the clauses where `v` has the same sign as in `cc`
+
     prod_S = np.prod(
         [
             eu[1]
             for keu, eu in new_envs[v].items()
-            if (clauses[keu](v) == clauses[cc](v)) and (keu != cc)
+            if (
+                instance.graph.nodes[keu]["data"](v)
+                == instance.graph.nodes[cc]["data"](v)
+            )
+            and (keu != cc)
         ]
     )
 
@@ -297,7 +302,11 @@ def sp_variable_update(new_envs, envs_tensors, cc, v, clauses):
         [
             eu[1]
             for keu, eu in new_envs[v].items()
-            if (clauses[keu](v) != clauses[cc](v)) and (keu != cc)
+            if (
+                instance.graph.nodes[keu]["data"](v)
+                != instance.graph.nodes[cc]["data"](v)
+            )
+            and (keu != cc)
         ]
     )
 
@@ -467,14 +476,13 @@ def two_norm_bp_variable_update(new_envs, envs_tensors, cc, v):
     return np.sum(np.absolute(envs_tensors[cc][v] - new_envs[cc][v]))
 
 
-def two_norm_bp_clause_update(new_envs, envs_tensors, cc, v, clauses):
-    vc = clauses[cc]
-    dense_c = two_norm_bp_clause_tensor(clauses[cc])
+def two_norm_bp_clause_update(new_envs, envs_tensors, cc, v, instance):
+    dense_c = two_norm_bp_clause_tensor(instance.graph.nodes[cc]["data"])
 
     envs = [
         qtn.Tensor(
             data=d,
-            inds=(f"p{p}_{cc}",),
+            inds=(f"{p}_{cc}",),
         )
         for p, d in new_envs[cc].items()
         if p != v
@@ -487,9 +495,9 @@ def two_norm_bp_clause_update(new_envs, envs_tensors, cc, v, clauses):
     return np.linalg.norm(envs_tensors[v][cc] - new_envs[v][cc], ord=1.0)
 
 
-def two_norm_bp_update(new_envs, envs_tensors, cc, v, clauses):
+def two_norm_bp_update(new_envs, envs_tensors, cc, v, instance):
     dist_v = two_norm_bp_variable_update(new_envs, envs_tensors, cc, v)
-    dist_c = two_norm_bp_clause_update(new_envs, envs_tensors, cc, v, clauses)
+    dist_c = two_norm_bp_clause_update(new_envs, envs_tensors, cc, v, instance)
 
     return dist_v, dist_c
 

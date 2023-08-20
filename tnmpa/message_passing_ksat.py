@@ -4,7 +4,7 @@ from itertools import compress
 
 import numpy as np
 
-from tnmpa.base.factor_graph import Factor, Variable
+from tnmpa.models.factor_graph import Factor, Variable
 
 from .mp_solvers import (
     belief_propagation,
@@ -349,23 +349,24 @@ class BeliefPropagation(MessagePassingKsatSolver):
 
         from .tensor_factories import bp_clause_tensor, bp_variable_tensor
 
-        clause = self.instance.clauses[clause_label]
-        tc = bp_clause_tensor(clause)
+        # print(clause_label)
+        # clause = self.instance.graph.nodes[clause_label]["data"]
+        tc = bp_clause_tensor(clause_label)
 
         tvs = []
         tve = []
-        for v in clause.pos:
+        for v in clause_label.variables:
             clause_var = [
-                self.instance.clauses[cl]
-                for cl in self.instance.var_clause_map[f"V{v}"]
+                self.instance.graph.nodes[cl]["data"]
+                for cl in self.instance.graph.neighbors(v.name)
             ]
-            tvs.append(bp_variable_tensor(v, clause_var, open_leg=True))
+            tvs.append(bp_variable_tensor(v.name, clause_var, open_leg=True))
             for c in clause_var:
-                if c.label != clause_label:
+                if c.name != clause_label.name:
                     tve.append(
                         qtn.Tensor(
-                            data=self.envs_tensors[v][c.label],
-                            inds=(f"p{v}_{c.label}",),
+                            data=self.envs_tensors[v.name][c.name],
+                            inds=(f"{v.name}_{c.name}",),
                             tags=("ENV",),
                         )
                     )

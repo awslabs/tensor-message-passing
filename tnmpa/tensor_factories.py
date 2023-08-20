@@ -18,19 +18,19 @@ def two_norm_bp_clause_tensor(clause):
     Tensor
     """
 
-    data_tc = np.ones([2] * len(clause.pos))
-    sl = tuple(1 if clause(p) else 0 for p in clause.pos)
+    data_tc = np.ones([2] * len(clause.variables))
+    sl = tuple(1 if clause(p.name) else 0 for p in clause.variables)
     data_tc[sl] = 0
 
     tc = qtn.Tensor(
         data=np.kron(data_tc, data_tc),
-        inds=tuple(f"p{p}_{clause.label}" for p in clause.pos),
-        tags=("CLAUSE",) + clause.tags,
+        inds=tuple(f"{p.name}_{clause.name}" for p in clause.variables),
+        tags=("CLAUSE",),
     )
     return tc
 
 
-def bp_clause_tensor(clause):
+def bp_clause_tensor(clause, hyper_tn=False):
     """
     Create a tensor representation of a clause for belief propagation.
     The indices of the tensor are chosen is such way that they can be
@@ -49,10 +49,13 @@ def bp_clause_tensor(clause):
     data_tc = np.ones([2] * len(clause.variables))
     sl = tuple(1 if clause(p.name) else 0 for p in clause.variables)
     data_tc[sl] = 0
-
+    if hyper_tn:
+        inds = tuple(p.name for p in clause.variables)
+    else:
+        inds = tuple(f"{p.name}_{clause.name}" for p in clause.variables)
     tc = qtn.Tensor(
         data=data_tc,
-        inds=tuple(f"{p.name}_{clause.name}" for p in clause.variables),
+        inds=inds,
     )
     return tc
 

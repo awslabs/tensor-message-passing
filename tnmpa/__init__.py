@@ -3,7 +3,6 @@ import importlib.metadata
 __version__ = importlib.metadata.version("tnmpa")
 
 from . import quimb_vbp
-from .ksat_instance import Clause, KsatInstance
 from .message_passing_ksat import (
     BeliefPropagation,
     SurveyPropagation,
@@ -11,4 +10,5 @@ from .message_passing_ksat import (
     TensorSurveyPropagation,
     TwoNormBeliefPropagation,
 )
+from .models import Clause, KsatInstance
 from .walksat import WalkSAT
