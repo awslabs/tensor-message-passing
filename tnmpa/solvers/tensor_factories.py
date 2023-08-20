@@ -18,19 +18,19 @@ def two_norm_bp_clause_tensor(clause):
     Tensor
     """
 
-    data_tc = np.ones([2] * len(clause.pos))
-    sl = tuple(1 if clause(p) else 0 for p in clause.pos)
+    data_tc = np.ones([2] * len(clause.variables))
+    sl = tuple(1 if clause(p.name) else 0 for p in clause.variables)
     data_tc[sl] = 0
 
     tc = qtn.Tensor(
         data=np.kron(data_tc, data_tc),
-        inds=tuple(f"p{p}_{clause.label}" for p in clause.pos),
-        tags=("CLAUSE",) + clause.tags,
+        inds=tuple(f"{p.name}_{clause.name}" for p in clause.variables),
+        tags=("CLAUSE",),
     )
     return tc
 
 
-def bp_clause_tensor(clause):
+def bp_clause_tensor(clause, hyper_tn=False):
     """
     Create a tensor representation of a clause for belief propagation.
     The indices of the tensor are chosen is such way that they can be
@@ -46,14 +46,16 @@ def bp_clause_tensor(clause):
     Tensor
     """
 
-    data_tc = np.ones([2] * len(clause.pos))
-    sl = tuple(1 if clause(p) else 0 for p in clause.pos)
+    data_tc = np.ones([2] * len(clause.variables))
+    sl = tuple(1 if clause(p.name) else 0 for p in clause.variables)
     data_tc[sl] = 0
-
+    if hyper_tn:
+        inds = tuple(p.name for p in clause.variables)
+    else:
+        inds = tuple(f"{p.name}_{clause.name}" for p in clause.variables)
     tc = qtn.Tensor(
         data=data_tc,
-        inds=tuple(f"p{p}_{clause.label}" for p in clause.pos),
-        tags=("CLAUSE",) + clause.tags,
+        inds=inds,
     )
     return tc
 
@@ -83,10 +85,11 @@ def bp_variable_tensor(variable, clauses, factor_threshold=8, open_leg=False):
     # t[0,..,0] = 1, or
     # t[1,..,1] = 1,
     # and zero otherwise
-    clabels = [c.label for c in clauses]
-    copy_inds = [f"p{variable}_" + c for c in clabels]
+    clabels = [c.name for c in clauses]
+    copy_inds = [f"{variable}_" + c for c in clabels]
+
     if open_leg:
-        copy_inds.append(f"p{variable}")
+        copy_inds.append(f"{variable}")
 
     if len(clabels) >= factor_threshold:
         arrays = [
@@ -144,28 +147,28 @@ def sp_clause_tensor(clause):
     """
 
     # initialize an empty array
-    data = np.zeros([5] * len(clause.pos))
-    for k, p in enumerate(clause.pos):
+    data = np.zeros([5] * len(clause.variables))
+    for k, p in enumerate(clause.variables):
         # Q^U is input in dimension 2
         # we collect all inputs for Q^U and output to 0
-        idx = [2] * len(clause.pos)
+        idx = [2] * len(clause.variables)
         idx[k] = 0
         # set the transition to 1
         data[tuple(idx)] = 1
 
         # all other combinations input to 1
-        idx = [slice(2, 5)] * len(clause.pos)
+        idx = [slice(2, 5)] * len(clause.variables)
         idx[k] = 1
         data[tuple(idx)] = 1
 
         # the three lines above include an unwanted transition
         # the one from all Q^U to 1, we set it to zero
-        idx = [2] * len(clause.pos)
+        idx = [2] * len(clause.variables)
         idx[k] = 1
         data[tuple(idx)] = 0
 
-    inds = tuple(f"p{po}_{clause.label}" for po in clause.pos)
-    return qtn.Tensor(data=data, inds=inds, tags=("CLAUSE",) + clause.tags)
+    inds = tuple(f"{po.name}_{clause.name}" for po in clause.variables)
+    return qtn.Tensor(data=data, inds=inds, tags=("CLAUSE",))
 
 
 def dense_sp_var_tensor(variable, clauses):
@@ -206,8 +209,8 @@ def dense_sp_var_tensor(variable, clauses):
     for a in range(rank):
         add_directional_tensor(a, rank, data, clauses, variable)
 
-    clabels = [c.label for c in clauses]
-    inds = tuple(f"p{variable}_" + cl for cl in clabels)
+    clabels = [c.name for c in clauses]
+    inds = tuple(f"{variable}_" + cl for cl in clabels)
 
     return qtn.Tensor(data=data, inds=inds, tags=("VARIABLE", f"T{variable}"))
 
@@ -309,8 +312,8 @@ def factorized_sp_var_tensor(variable, clauses):
         arsstar[a] = four
         data += qtn.MPS_product_state(arsstar)
 
-    clabels = [c.label for c in clauses]
-    new_inds = tuple(f"p{variable}_" + cl for cl in clabels)
+    clabels = [c.name for c in clauses]
+    new_inds = tuple(f"{variable}_" + cl for cl in clabels)
     index_map = {oi: ni for oi, ni in zip(data.site_inds, new_inds)}
     data.reindex(index_map, inplace=True)
     data.add_tag(f"T{variable}")

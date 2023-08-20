@@ -1,5 +1,7 @@
 import random
 
+from networkx.algorithms import bipartite
+
 
 class WalkSAT:
     """Basic implementation of WalkSAT to solve a k-SAT instance."""
@@ -13,12 +15,14 @@ class WalkSAT:
     def collect_violated_clauses(self):
         count = 0
         self.violated_clauses = []
-        for c in self.instance.clauses.values():
+        clause_names, _ = bipartite.sets(self.instance.graph)
+        for c in clause_names:
+            c = self.instance.graph.nodes[c]["data"]
             # if the solutino is only partial, this will fail
-            vals = tuple(self.solution[p] for p in c.pos)
+            vals = tuple(self.solution[p.name] for p in c.variables)
             # if a clause is violated, the variables take the same values as in the unsat_index
             if vals == c.unsat_index:
-                self.violated_clauses.append(c.label)
+                self.violated_clauses.append(c.name)
 
     def solve(self, max_flips, mixing):
         """Solve this instnace"""
@@ -47,34 +51,37 @@ class WalkSAT:
 
             else:
                 flip_clause = random.sample(self.violated_clauses, 1)[0]
-                flip_var = random.sample(self.instance.clauses[flip_clause].pos, 1)[0]
-
+                v = random.sample(
+                    self.instance.graph.nodes[flip_clause]["data"].variables, 1
+                )[0]
+                flip_var = v.name
             # delta = self.compute_delta(flip_var)
             self.solution[flip_var] = not self.solution[flip_var]
             self.update_clauses(flip_var)
         return False
 
     def update_clauses(self, flip_var):
-        clauses_at_v = self.instance.var_clause_map[f"V{flip_var}"]
+        clauses_at_v = self.instance.graph.neighbors(flip_var)
         for c in clauses_at_v:
-            clause = self.instance.clauses[c]
-            vals = tuple(self.solution[p] for p in clause.pos)
+            clause = self.instance.graph.nodes[c]["data"]
+            vals = tuple(self.solution[p.name] for p in clause.variables)
             if (vals == clause.unsat_index) and (c not in self.violated_clauses):
                 self.violated_clauses.append(c)
             elif (vals != clause.unsat_index) and (c in self.violated_clauses):
                 self.violated_clauses.remove(c)
 
     def compute_delta(self, v):
-        clauses_at_v = self.instance.var_clause_map[f"V{v}"]
+        clauses_at_v = self.instance.graph.neighbors(v)
         v_val = self.solution[v]
 
         delta = 0
         for c in clauses_at_v:
-            clause = self.instance.clauses[c]
-            vals = tuple(self.solution[p] for p in clause.pos)
+            clause = self.instance.graph.nodes[c]["data"]
+            variables = [p.name for p in clause.variables]
+            vals = tuple(self.solution[p] for p in variables)
             en = 1 if vals == clause.unsat_index else 0
 
-            idx_v = clause.pos.index(v)
+            idx_v = variables.index(v)
             f_vals = list(vals)
             f_vals[idx_v] = not f_vals[idx_v]
             f_vals = tuple(f_vals)
