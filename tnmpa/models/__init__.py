@@ -1,1 +1,2 @@
-from .factor_graph import Clause, KsatInstance
+from .factor_graph import Factor, FactorGraph, Variable
+from .ksat import KSAT, Clause
