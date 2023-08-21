@@ -23,8 +23,8 @@ class MIS(FactorGraph):
         import tnmpa.solvers.tensor_factories as tfac
 
         tn = qtn.TensorNetwork([])
-        data = np.zeros((2, 2))
-        data[0, 1] = data[1, 0] = 1.0
+        data = np.ones((2, 2))
+        data[1, 1] = 0.0
         for c in self.factors:
             # add one tensor for each clause
             tn_c = qtn.Tensor(
