@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Sequence, Union
 
 import networkx as nx
 import numpy as np
@@ -8,7 +8,15 @@ from tnmpa.models import Factor, FactorGraph, Variable
 
 
 class MIS(FactorGraph):
-    def __init__(self, N, M, mu, seed=None):
+    """A simple class to represent the maximally independent set problem
+    P(x) = exp(\sum_i mu[i] \sigma_i) \Prod_{ij} (1 - \sigma_i \sigma_j)
+    For more stat mech details, see https://arxiv.org/abs/1306.4121
+    """
+
+    def __init__(
+        self, N: int, M: int, mu: Union[float, Sequence[float]] = 1.0, seed: int = None
+    ):
+        """Initialize a graph for a MIS problem with N vertices and M edges."""
         self.mu = mu
         super().__init__([])
         self.graph = nx.gnm_random_graph(N, M, seed)
